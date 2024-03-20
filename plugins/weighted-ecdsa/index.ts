@@ -12,4 +12,4 @@ export {
 
 /// @dev note that only deployed on polygon-mumbai now
 export const WEIGHTED_ECDSA_VALIDATOR_ADDRESS =
-    "0xaFA369cA3432e62ACe6bd77B2886F2D588c68dA8"
+    "0xf230ac0AD98F81cd9806b5A6B16f8Fb92Fb6Fc48"
