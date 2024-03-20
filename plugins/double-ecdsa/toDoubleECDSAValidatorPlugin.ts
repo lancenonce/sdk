@@ -47,6 +47,7 @@ export async function signerToDoubleEcdsaValidator<
     } as LocalAccount
 
     // Create Owner signer that signs the data within the sdk
+    // .env breaking
     const privateKey =
         "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     console.log("privateKey", privateKey)

@@ -43,6 +43,7 @@ const main = async () => {
         chain
     })
 
+    // This is the hash of the proof
     const proofHash =
         "0x5f35dce98ba4fba25530a026ed80b2cecdaa31091ba4958b99b52ea1d068adad"
     // TODO: What if the proofId is the hash of the proof + a nonce?
