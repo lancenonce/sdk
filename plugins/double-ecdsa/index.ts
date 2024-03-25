@@ -1,4 +1,4 @@
-import type { KernelValidator } from "@zerodev/sdk/types"
+import type { KernelValidator } from "@zerodev/sdk"
 import {
     type Bytes4,
     enableDoubleEcdsaValidator
