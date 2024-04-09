@@ -107,44 +107,33 @@ export async function signerToDoubleEcdsaValidator<
             )
 
             return encodeAbiParameters(
-                [
-                    { name: "modelId", type: "bytes16" },
-                ],
-                [
-                    modelIdBytes as "0x${string}",
-                ]
+                [{ name: "modelId", type: "bytes16" }],
+                [modelIdBytes as "0x${string}"]
             )
         },
         async getNonceKey() {
             return 0n
         },
         // Sign a user operation
-        // TODO: concatenate the proofID and the proofHash to the signatures
         async signUserOperation(userOperation: UserOperation) {
-            const signer1Sig = await signMessage(client, {
-                account: viemSigner,
-                message: { raw: proofHash as `0x${string}` }
-            })
-            console.log("signer1Sig", signer1Sig)
-            const signer2Sig = await dataSigner.signMessage({
-                message: proofHash
-            })
-            console.log("signer2Sig", signer2Sig)
-            const concatenatedSig =
-                signer1Sig.slice(0, 64) + signer2Sig.slice(2)
-            console.log("concatenatedSig", concatenatedSig)
-
+            const proofId = "0x3838383838383838383838383838383838383838383838383838383838383838";
+            const proofHash = "0x501f55d0452337c3c5f76391d181c1d9008c7550b826c806abea9ad3365a2747";
+            const sig1 = "0xe0e5970d056dfb379b13b9dff8ee428c5f5d186112b557ac20b484e66e14d6995a5667ac74ff0f485aecd16c2a5e4c13ee5d3db551528651a7bf5b877e2c9e771c";
+            const sig2 = "0x6a363ef5ba228d4a00c0b736b36672e0b846048acedee0e75c90027c026e2fa703ca96a9050f6be84aabcd951b759a0f8b173414f8f7019396739b6671410c1f1c";
+            const sig = `${sig1.slice(2)}${sig2.slice(2)}${proofId.slice(2)}${proofHash.slice(2)}`;
+            console.log("Signature: ", sig);
+        
             const hash = getUserOperationHash({
                 userOperation: {
                     ...userOperation,
-                    signature: concatenatedSig as `0x${string}`
+                    signature: sig as `0x${string}`
                 },
                 entryPoint: entryPoint,
                 chainId: chainId
-            })
-            console.log("hash", hash)
-
-            return `0x${concatenatedSig}`
+            });
+            console.log("hash", hash);
+        
+            return `0x${sig}`;
         },
 
         // Get simple dummy signature
