@@ -1,4 +1,4 @@
-import { getAccountNonce, getAction, getSenderAddress } from "permissionless"
+import { getAccountNonce, getSenderAddress } from "permissionless"
 import {
     SignTransactionNotSupportedBySmartAccount,
     type SmartAccount
@@ -7,43 +7,40 @@ import {
     type Address,
     type Chain,
     type Client,
-    type ContractFunctionExecutionErrorType,
     type EncodeDeployDataParameters,
     type Hash,
     type Hex,
     type Transport,
     type TypedDataDefinition,
     concatHex,
-    decodeErrorResult,
-    decodeFunctionResult,
-    encodeAbiParameters,
     encodeDeployData,
     encodeFunctionData,
     getTypesForEIP712Domain,
     hashMessage,
     hashTypedData,
-    keccak256,
     parseAbi,
-    publicActions,
-    stringToHex,
     validateTypedData
 } from "viem"
 import { toAccount } from "viem/accounts"
-import { getBytecode, getStorageAt } from "viem/actions"
-import { KERNEL_NAME } from "../../constants.js"
+import { getBytecode } from "viem/actions"
 import type {
     KernelEncodeCallDataArgs,
     KernelPluginManager,
     KernelPluginManagerParams
-} from "../../types/kernel.js"
-import { getKernelVersion } from "../../utils.js"
-import { wrapSignatureWith6492 } from "../utils/6492.js"
-import { parseFactoryAddressAndCallDataFromAccountInitCode } from "../utils/index.js"
+} from "../../../types/kernel.js"
+import { wrapSignatureWith6492 } from "../../utils/6492.js"
+import { parseFactoryAddressAndCallDataFromAccountInitCode } from "../../utils/index.js"
+import {
+    MULTISEND_ADDRESS,
+    encodeMultiSend,
+    multiSendAbi
+} from "../../utils/multisend.js"
 import {
     isKernelPluginManager,
     toKernelPluginManager
-} from "../utils/toKernelPluginManager.js"
-import { KernelExecuteAbi, KernelInitAbi } from "./abi/KernelAccountAbi.js"
+} from "../../utils/toKernelPluginManager.js"
+import { KernelAccountV2Abi } from "./abi/KernelAccountV2Abi.js"
+import { KernelFactoryV2Abi } from "./abi/KernelFactoryV2Abi.js"
 
 export type KernelSmartAccount<
     transport extends Transport = Transport,
@@ -54,41 +51,6 @@ export type KernelSmartAccount<
     encodeCallData: (args: KernelEncodeCallDataArgs) => Promise<Hex>
 }
 
-/**
- * The account creation ABI for a kernel smart account (from the KernelFactory)
- */
-const createAccountAbi = [
-    {
-        inputs: [
-            {
-                internalType: "address",
-                name: "_implementation",
-                type: "address"
-            },
-            {
-                internalType: "bytes",
-                name: "_data",
-                type: "bytes"
-            },
-            {
-                internalType: "uint256",
-                name: "_index",
-                type: "uint256"
-            }
-        ],
-        name: "createAccount",
-        outputs: [
-            {
-                internalType: "address",
-                name: "proxy",
-                type: "address"
-            }
-        ],
-        stateMutability: "payable",
-        type: "function"
-    }
-] as const
-
 // Safe's library for create and create2: https://github.com/safe-global/safe-contracts/blob/0acdd35a203299585438f53885df630f9d486a86/contracts/libraries/CreateCall.sol
 // Address was found here: https://github.com/safe-global/safe-deployments/blob/926ec6bbe2ebcac3aa2c2c6c0aff74aa590cbc6a/src/assets/v1.4.1/create_call.json
 const createCallAddress = "0x9b35Af71d77eaf8d7e40252370304687390A1A52"
@@ -98,49 +60,14 @@ const createCallAbi = parseAbi([
     "function performCreate2(uint256 value, bytes memory deploymentData, bytes32 salt) public returns (address newContract)"
 ])
 
-export const EIP1271ABI = [
-    {
-        type: "function",
-        name: "eip712Domain",
-        inputs: [],
-        outputs: [
-            { name: "fields", type: "bytes1", internalType: "bytes1" },
-            { name: "name", type: "string", internalType: "string" },
-            { name: "version", type: "string", internalType: "string" },
-            { name: "chainId", type: "uint256", internalType: "uint256" },
-            {
-                name: "verifyingContract",
-                type: "address",
-                internalType: "address"
-            },
-            { name: "salt", type: "bytes32", internalType: "bytes32" },
-            { name: "extensions", type: "uint256[]", internalType: "uint256[]" }
-        ],
-        stateMutability: "view"
-    },
-    {
-        type: "function",
-        name: "isValidSignature",
-        inputs: [
-            { name: "data", type: "bytes32", internalType: "bytes32" },
-            { name: "signature", type: "bytes", internalType: "bytes" }
-        ],
-        outputs: [
-            { name: "magicValue", type: "bytes4", internalType: "bytes4" }
-        ],
-        stateMutability: "view"
-    }
-] as const
 /**
  * Default addresses for kernel smart account
  */
 export const KERNEL_ADDRESSES: {
-    ACCOUNT_LOGIC: Address
     FACTORY_ADDRESS: Address
     ENTRYPOINT_V0_6: Address
 } = {
-    ACCOUNT_LOGIC: "0xd3082872F8B06073A021b4602e022d5A070d7cfC",
-    FACTORY_ADDRESS: "0x5de4839a76cf55d0c90e2061ef4386d962E15ae3",
+    FACTORY_ADDRESS: "0xaee9762ce625e0a8f7b184670fb57c37bfe1d0f1",
     ENTRYPOINT_V0_6: "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789"
 }
 
@@ -148,36 +75,26 @@ export const KERNEL_ADDRESSES: {
  * Get the account initialization code for a kernel smart account
  * @param index
  * @param factoryAddress
- * @param accountLogicAddress
  * @param ecdsaValidatorAddress
  */
 const getAccountInitCode = async ({
     index,
     factoryAddress,
-    accountLogicAddress,
     validatorAddress,
     enableData
 }: {
     index: bigint
     factoryAddress: Address
-    accountLogicAddress: Address
     validatorAddress: Address
     enableData: Hex
 }): Promise<Hex> => {
-    // Build the account initialization data
-    const initialisationData = encodeFunctionData({
-        abi: KernelInitAbi,
-        functionName: "initialize",
-        args: [validatorAddress, enableData]
-    })
-
     // Build the account init code
     return concatHex([
         factoryAddress,
         encodeFunctionData({
-            abi: createAccountAbi,
+            abi: KernelFactoryV2Abi,
             functionName: "createAccount",
-            args: [accountLogicAddress, initialisationData, index]
+            args: [validatorAddress, enableData, index]
         }) as Hex
     ])
 }
@@ -204,36 +121,10 @@ const getAccountAddress = async <
     const initCode = await initCodeProvider()
 
     // Get the sender address based on the init code
-    try {
-        return await getSenderAddress(client, {
-            initCode,
-            entryPoint
-        })
-    } catch (error) {
-        const err = error as ContractFunctionExecutionErrorType
-        // Fuse, Gnosis returns a different error message (CallExecutionError) than the other chains
-        if (err.cause.name === "CallExecutionError") {
-            const value = decodeErrorResult({
-                abi: [
-                    {
-                        inputs: [
-                            {
-                                internalType: "address",
-                                name: "sender",
-                                type: "address"
-                            }
-                        ],
-                        name: "SenderAddressResult",
-                        type: "error"
-                    }
-                ],
-                // @ts-expect-error
-                data: err.cause.cause.cause.data.split(" ")[1]
-            })
-            return value.args[0] as Address
-        }
-        throw err
-    }
+    return getSenderAddress(client, {
+        initCode,
+        entryPoint
+    })
 }
 
 /**
@@ -243,11 +134,10 @@ const getAccountAddress = async <
  * @param entryPoint
  * @param index
  * @param factoryAddress
- * @param accountLogicAddress
  * @param ecdsaValidatorAddress
  * @param deployedAccountAddress
  */
-export async function createKernelAccount<
+export async function createKernelV2Account<
     TTransport extends Transport = Transport,
     TChain extends Chain | undefined = Chain | undefined
 >(
@@ -257,14 +147,12 @@ export async function createKernelAccount<
         entryPoint = KERNEL_ADDRESSES.ENTRYPOINT_V0_6,
         index = 0n,
         factoryAddress = KERNEL_ADDRESSES.FACTORY_ADDRESS,
-        accountLogicAddress = KERNEL_ADDRESSES.ACCOUNT_LOGIC,
         deployedAccountAddress
     }: {
         plugins: KernelPluginManagerParams | KernelPluginManager
         entryPoint?: Address
         index?: bigint
         factoryAddress?: Address
-        accountLogicAddress?: Address
         deployedAccountAddress?: Address
     }
 ): Promise<KernelSmartAccount<TTransport, TChain>> {
@@ -274,7 +162,8 @@ export async function createKernelAccount<
               sudo: plugins.sudo,
               regular: plugins.regular,
               executorData: plugins.executorData,
-              pluginEnableSignature: plugins.pluginEnableSignature
+              pluginEnableSignature: plugins.pluginEnableSignature,
+              kernelVersion: "0.0.2" ?? plugins.kernelVersion
           })
     // Helper to generate the init code for the smart account
     const generateInitCode = async () => {
@@ -283,7 +172,6 @@ export async function createKernelAccount<
         return getAccountInitCode({
             index,
             factoryAddress,
-            accountLogicAddress,
             validatorAddress: validatorInitData.validatorAddress,
             enableData: validatorInitData.enableData
         })
@@ -300,95 +188,6 @@ export async function createKernelAccount<
 
     if (!accountAddress) throw new Error("Account address not found")
 
-    const signHashedMessage = async (messageHash: Hex): Promise<Hex> => {
-        let kernelImplAddr: Address | undefined
-        try {
-            const strgAddr = await getAction(
-                client,
-                getStorageAt
-            )({
-                address: accountAddress,
-                slot: "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
-            })
-            if (strgAddr) kernelImplAddr = `0x${strgAddr.slice(26)}` as Hex
-        } catch (error) {}
-        const kernelVersion = getKernelVersion(kernelImplAddr)
-        if (kernelVersion !== "0.2.3" && kernelVersion !== "0.2.4") {
-            return kernelPluginManager.signMessage({
-                message: {
-                    raw: messageHash
-                }
-            })
-        }
-
-        const domain = await client.request({
-            method: "eth_call",
-            params: [
-                {
-                    to: accountAddress,
-                    data: encodeFunctionData({
-                        abi: EIP1271ABI,
-                        functionName: "eip712Domain"
-                    })
-                },
-                "latest"
-            ]
-        })
-
-        let name: string
-        let version: string
-        let chainId: bigint
-
-        if (domain !== "0x") {
-            const decoded = decodeFunctionResult({
-                abi: [...EIP1271ABI],
-                functionName: "eip712Domain",
-                data: domain
-            })
-
-            name = decoded[1]
-            version = decoded[2]
-            chainId = decoded[3]
-        } else {
-            name = KERNEL_NAME
-            version = kernelVersion
-            chainId = client.chain
-                ? BigInt(client.chain.id)
-                : BigInt(await client.extend(publicActions).getChainId())
-        }
-
-        const encoded = encodeAbiParameters(
-            [
-                { type: "bytes32" },
-                { type: "bytes32" },
-                { type: "bytes32" },
-                { type: "uint256" },
-                { type: "address" }
-            ],
-            [
-                keccak256(
-                    stringToHex(
-                        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-                    )
-                ),
-                keccak256(stringToHex(name)),
-                keccak256(stringToHex(version)),
-                BigInt(chainId),
-                accountAddress
-            ]
-        )
-
-        const domainSeparator = keccak256(encoded)
-        const digest = keccak256(
-            concatHex(["0x1901", domainSeparator, messageHash])
-        )
-        return kernelPluginManager.signMessage({
-            message: {
-                raw: digest
-            }
-        })
-    }
-
     // Build the EOA Signer
     const account = toAccount({
         address: accountAddress,
@@ -396,7 +195,11 @@ export async function createKernelAccount<
             const messageHash = hashMessage(message)
             const [isDeployed, signature] = await Promise.all([
                 isAccountDeployed(),
-                signHashedMessage(messageHash)
+                kernelPluginManager.signMessage({
+                    message: {
+                        raw: messageHash
+                    }
+                })
             ])
             return create6492Signature(isDeployed, signature)
         },
@@ -423,7 +226,11 @@ export async function createKernelAccount<
             const typedHash = hashTypedData(typedData)
             const [isDeployed, signature] = await Promise.all([
                 isAccountDeployed(),
-                signHashedMessage(typedHash)
+                kernelPluginManager.signMessage({
+                    message: {
+                        raw: typedHash
+                    }
+                })
             ])
             return create6492Signature(isDeployed, signature)
         }
@@ -493,10 +300,11 @@ export async function createKernelAccount<
         // Encode the deploy call data
         async encodeDeployCallData(_tx) {
             return encodeFunctionData({
-                abi: KernelExecuteAbi,
-                functionName: "executeDelegateCall",
+                abi: KernelAccountV2Abi,
+                functionName: "execute",
                 args: [
                     createCallAddress,
+                    0n,
                     encodeFunctionData({
                         abi: createCallAbi,
                         functionName: "performCreate",
@@ -508,7 +316,8 @@ export async function createKernelAccount<
                                 args: _tx.args
                             } as EncodeDeployDataParameters)
                         ]
-                    })
+                    }),
+                    1 // Delegate call
                 ]
             })
         },
@@ -517,22 +326,15 @@ export async function createKernelAccount<
         async encodeCallData(_tx) {
             const tx = _tx as KernelEncodeCallDataArgs
             if (Array.isArray(tx)) {
-                // Encode a batched call
+                const multiSendCallData = encodeFunctionData({
+                    abi: multiSendAbi,
+                    functionName: "multiSend",
+                    args: [encodeMultiSend(tx)]
+                })
                 return encodeFunctionData({
-                    abi: KernelExecuteAbi,
-                    functionName: "executeBatch",
-                    args: [
-                        tx.map((txn) => {
-                            if (txn.callType === "delegatecall") {
-                                throw new Error("Cannot batch delegatecall")
-                            }
-                            return {
-                                to: txn.to,
-                                value: txn.value,
-                                data: txn.data
-                            }
-                        })
-                    ]
+                    abi: KernelAccountV2Abi,
+                    functionName: "execute",
+                    args: [MULTISEND_ADDRESS, 0n, multiSendCallData, 1]
                 })
             }
 
@@ -542,7 +344,7 @@ export async function createKernelAccount<
                     return tx.data
                 }
                 return encodeFunctionData({
-                    abi: KernelExecuteAbi,
+                    abi: KernelAccountV2Abi,
                     functionName: "execute",
                     args: [tx.to, tx.value, tx.data, 0]
                 })
@@ -550,9 +352,9 @@ export async function createKernelAccount<
 
             if (tx.callType === "delegatecall") {
                 return encodeFunctionData({
-                    abi: KernelExecuteAbi,
-                    functionName: "executeDelegateCall",
-                    args: [tx.to, tx.data]
+                    abi: KernelAccountV2Abi,
+                    functionName: "execute",
+                    args: [tx.to, 0n, tx.data, 1]
                 })
             }
 

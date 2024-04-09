@@ -26,8 +26,13 @@ export class KernelEIP1193Provider extends EventEmitter {
                 return this.handleEthAccounts()
             case "eth_sendTransaction":
                 return this.handleEthSendTransaction(params)
+            case "eth_sign":
+                return this.handleEthSign(params as [string, string])
             case "personal_sign":
                 return this.handlePersonalSign(params as [string, string])
+            case "eth_signTypedData":
+            case "eth_signTypedData_v4":
+                return this.handleEthSignTypedDataV4(params as [string, string])
             default:
                 return this.kernelClient.transport.request({ method, params })
         }
@@ -52,6 +57,26 @@ export class KernelEIP1193Provider extends EventEmitter {
         return this.kernelClient.sendTransaction(tx)
     }
 
+    private async handleEthSign(params: [string, string]): Promise<string> {
+        if (!this.kernelClient?.account) {
+            throw new Error("account not connected!")
+        }
+        const [address, message] = params
+        if (
+            address.toLowerCase() !==
+            this.kernelClient.account.address.toLowerCase()
+        ) {
+            throw new Error(
+                "cannot sign for address that is not the current account"
+            )
+        }
+
+        return this.kernelClient.signMessage({
+            message,
+            account: this.kernelClient.account
+        })
+    }
+
     private async handlePersonalSign(
         params: [string, string]
     ): Promise<string> {
@@ -71,6 +96,32 @@ export class KernelEIP1193Provider extends EventEmitter {
         return this.kernelClient.signMessage({
             message,
             account: this.kernelClient.account
+        })
+    }
+
+    private async handleEthSignTypedDataV4(
+        params: [string, string]
+    ): Promise<string> {
+        if (!this.kernelClient?.account) {
+            throw new Error("account not connected!")
+        }
+        const [address, typedDataJSON] = params
+        const typedData = JSON.parse(typedDataJSON)
+        if (
+            address.toLowerCase() !==
+            this.kernelClient.account.address.toLowerCase()
+        ) {
+            throw new Error(
+                "cannot sign for address that is not the current account"
+            )
+        }
+
+        return this.kernelClient.signTypedData({
+            account: this.kernelClient.account,
+            domain: typedData.domain,
+            types: typedData.types,
+            message: typedData.message,
+            primaryType: typedData.primaryType
         })
     }
 }
