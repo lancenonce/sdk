@@ -1,13 +1,7 @@
 import type { KernelValidator } from "@zerodev/sdk"
-import {
-    type Bytes4,
-    enableDoubleEcdsaValidator
-} from "./enableDoubleECDSAValidator.js"
 import { signerToDoubleEcdsaValidator } from "./toDoubleECDSAValidatorPlugin.js"
 
 export {
-    enableDoubleEcdsaValidator,
-    type Bytes4,
     signerToDoubleEcdsaValidator,
     type KernelValidator
 }

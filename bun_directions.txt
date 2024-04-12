@@ -1,0 +1,17 @@
+lancenonce/zerodev-sdk-fork
+
+When building the project, use
+
+bun install
+
+Then, change directories to double-ecdsa, and run
+
+bun link
+
+Then, when you create a test project that uses the dependency, run the command that `bun link` returns
+
+bun link @zerodev/double-ecdsa-validator
+
+When ready for production, contact ZeroDev
+
+the goal is to just use it for Giza, with no external usage

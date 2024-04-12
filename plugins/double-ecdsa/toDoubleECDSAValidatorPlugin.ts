@@ -22,10 +22,6 @@ import { signMessage, signTypedData } from "viem/actions"
 import { getChainId } from "viem/actions"
 import { DOUBLE_ECDSA_VALIDATOR_ADDRESS } from "./index.js"
 
-export type Bytes4 = string & {
-    length: 6
-}
-
 export async function signerToDoubleEcdsaValidator<
     TTransport extends Transport = Transport,
     TChain extends Chain | undefined = Chain | undefined,
@@ -42,10 +38,9 @@ export async function signerToDoubleEcdsaValidator<
         entryPoint?: Address
         validatorAddress?: Address
     },
-    proofHash: string,
-    model_id: Bytes4,
-    version_id: Bytes4,
-    proof_id: string
+    model_id: string,
+    proof_id: string,
+    proof_hash: string
 ): Promise<KernelValidator<"DoubleECDSAValidator">> {
     // Get the private key related account
     const viemSigner: LocalAccount = {

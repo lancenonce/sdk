@@ -1,6 +1,4 @@
 import {
-    Bytes4,
-    enableDoubleEcdsaValidator,
     signerToDoubleEcdsaValidator
 } from "@zerodev/double-ecdsa-validator"
 import {
@@ -54,7 +52,8 @@ const main = async () => {
         {
             signer
         },
-        proofHash
+        proofHash,
+        proofId
     )
 
     const account = await createKernelAccount(publicClient, {
@@ -72,22 +71,9 @@ const main = async () => {
         transport: http(getZeroDevBundlerRPC(projectId))
     })
 
-    // Enable the ProofSigValidator
-    // Warning: We may need gas sponsorship
-    enableDoubleEcdsaValidator(
-        account,
-        model_id,
-        version_id,
-        proofId,
-        proofHash,
-        kernelClient as KernelAccountClient<
-            HttpTransport,
-            Chain,
-            KernelSmartAccount
-        >
-    )
     console.log("Kernel Client: ", kernelClient)
 
+    // UserOp is made by Kernel, the userop is sent to the entrypoint, the entrpoint sends the transaction calldata to the account, then the account executes the calldata
     const data = encodeFunctionData({
         abi: simpleLendingAbi,
         functionName: "getAddress",
@@ -95,13 +81,13 @@ const main = async () => {
     })
 
     const calldata = await kernelClient.account.encodeCallData({
-        // This is the address of the deployed SimpleLending contract
+        // This is the address of the deployed SimpleLending contract on sepolia
         to: "0xB0b1eDf7dB33eF70f432395353ec70eb7c55Ab61",
         value: 0n,
         data
     })
 
-    const UOcalldata = proofId + calldata.slice(2)
+    const UOcalldata = calldata.slice(2)
 
     const userOpHash = await kernelClient.sendUserOperation({
         userOperation: {
